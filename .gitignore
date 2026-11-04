@@ -1,6 +1,4 @@
-# Answer key + generated data. Regenerate with: python generate_data.py
-answer_key.json
-SDR_answer_key.md
+# Bulk data is regenerable: python generate_data.py
 data/
 __pycache__/
 *.pyc
