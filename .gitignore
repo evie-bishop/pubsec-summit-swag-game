@@ -1,0 +1,6 @@
+# Answer key + generated data. Regenerate with: python generate_data.py
+answer_key.json
+SDR_answer_key.md
+data/
+__pycache__/
+*.pyc
