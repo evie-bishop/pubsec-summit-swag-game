@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Load data, create data views, create detection rules and the 10 Cases.
+"""Load data, create data views, set default time range and create the game Cases (10 main + 7 expert).
 
 Usage:
   pip install requests
-  set ES_URL=https://<es-endpoint>  KIBANA_URL=https://<kibana-endpoint>  API_KEY=<encoded admin api key>
+  export ES_URL=https://<es-endpoint>:443  KIBANA_URL=https://<kibana-endpoint>  API_KEY=<admin api key, base64>
   python generate_data.py
+  python expert_data.py
   python setup_cluster.py            # everything
   python setup_cluster.py --only cases --recreate-cases
-  python setup_cluster.py --update-case Q1
-  python setup_cluster.py --only data --index pubsec-potholes
-Flags: --only {data,views,settings,rules,disable-rules,cases}  --recreate-cases  --update-case Q#
-       --index <index>  --owner cases|observability|securitySolution
+Flags: --only {data,views,settings,rules,disable-rules,cases,expert-cases}  --recreate-cases
+       --owner cases|observability|securitySolution  --update-case Q1  --index pubsec-potholes
 """
 import argparse, glob, json, os, sys
 import requests
@@ -47,6 +46,18 @@ MAPPINGS = {
                       "http": {"properties": {"response": {"properties": {"status_code": {"type": "integer"}}}}},
                       "response_time_ms": {"type": "integer"},
                       "client": {"properties": {"country": {"type": "keyword"}}}},
+    # ---- expert round
+    "pubsec-auth": {"@timestamp": {"type": "date"},
+                    "user": {"properties": {"name": {"type": "keyword"}}},
+                    "source": {"properties": {"ip": {"type": "ip"},
+                                              "geo": {"properties": {"country_iso_code": {"type": "keyword"}}}}},
+                    "event": {"properties": {"outcome": {"type": "keyword"}, "category": {"type": "keyword"}}}},
+    "pubsec-servicedesk": {"@timestamp": {"type": "date"}, "ticket": {"type": "keyword"},
+                           "priority": {"type": "keyword"}, "dept": {"type": "keyword"},
+                           "resolved_in_mins": {"type": "integer"}, "summary": {"type": "keyword"}},
+    "pubsec-contracts": {"@timestamp": {"type": "date"}, "supplier": {"type": "keyword"},
+                         "department": {"type": "keyword"}, "value_gbp": {"type": "long"},
+                         "procurement_route": {"type": "keyword"}},
 }
 
 
@@ -67,7 +78,7 @@ def main():
     ap.add_argument("--es-url", default=os.getenv("ES_URL"))
     ap.add_argument("--kibana-url", default=os.getenv("KIBANA_URL"))
     ap.add_argument("--api-key", default=os.getenv("API_KEY"))
-    ap.add_argument("--only", choices=["data", "views", "settings", "rules", "disable-rules", "cases"])
+    ap.add_argument("--only", choices=["data", "views", "settings", "rules", "disable-rules", "cases", "expert-cases"])
     ap.add_argument("--recreate-cases", action="store_true")
     ap.add_argument("--owner", default="cases")
     ap.add_argument("--update-case", help="update only this case's description, e.g. Q1")
@@ -84,8 +95,9 @@ def main():
     if a.update_case:  # patch ONE case's description in place, leaving every other case untouched
         sys.path.insert(0, HERE)
         from cases_content import build_cases
+        from expert_cases import build_expert_cases
         prefix = a.update_case + " |"
-        new = next(c for c in build_cases(kb) if c["title"].startswith(prefix))
+        new = next(c for c in build_cases(kb) + build_expert_cases(kb) if c["title"].startswith(prefix))
         found = requests.get(f"{kb}/api/cases/_find", headers=KH,
                              params={"perPage": 100, "owner": a.owner}).json()
         match = [c for c in found.get("cases", []) if c["title"].startswith(prefix)]
@@ -93,6 +105,9 @@ def main():
             sys.exit(f"Expected exactly one case starting with '{prefix}', found {len(match)}")
         r = requests.patch(f"{kb}/api/cases", headers=KH, json={"cases": [
             {"id": match[0]["id"], "version": match[0]["version"], "description": new["description"]}]})
+        if r.status_code == 406:  # Kibana: nothing to change
+            print("already up to date:", match[0]["title"])
+            return
         r.raise_for_status()
         print("updated description of:", match[0]["title"])
         return
@@ -102,8 +117,7 @@ def main():
             if a.index and idx != a.index:
                 continue
             requests.delete(f"{es}/{idx}", headers=H)
-            r = requests.put(f"{es}/{idx}", headers=H, json={
-                "mappings": {"properties": props}})
+            r = requests.put(f"{es}/{idx}", headers=H, json={"mappings": {"properties": props}})
             r.raise_for_status()
         for path in sorted(glob.glob(os.path.join(HERE, "data", "*.ndjson"))):
             if a.index and os.path.basename(path) != a.index + ".ndjson":
@@ -121,9 +135,11 @@ def main():
 
     if run("views"):
         for idx in MAPPINGS:
+            dv = {"id": idx, "title": idx, "name": idx}
+            if "@timestamp" in MAPPINGS[idx]:
+                dv["timeFieldName"] = "@timestamp"
             r = requests.post(f"{kb}/api/data_views/data_view", headers=KH, json={
-                "override": True,
-                "data_view": {"id": idx, "title": idx, "name": idx, "timeFieldName": "@timestamp"}})
+                "override": True, "data_view": dv})
             r.raise_for_status()
             print("data view", idx)
 
@@ -173,9 +189,35 @@ def main():
         r.raise_for_status()
         print("rules disabled")
 
+    if a.only == "expert-cases":  # add just the expert round cases; never touches the existing ones
+        sys.path.insert(0, HERE)
+        from expert_cases import build_expert_cases
+        if a.recreate_cases:  # delete the previous expert-round cases (tag "expert") first
+            old = requests.get(f"{kb}/api/cases/_find", headers=KH,
+                               params={"tags": "expert", "perPage": 100, "owner": a.owner}).json()
+            ids = [c["id"] for c in old.get("cases", [])]
+            if ids:
+                requests.delete(f"{kb}/api/cases", headers=KH, params={"ids": json.dumps(ids)}).raise_for_status()
+                print(f"deleted {len(ids)} old expert case(s)")
+        found = requests.get(f"{kb}/api/cases/_find", headers=KH,
+                             params={"perPage": 100, "owner": a.owner}).json()
+        existing = {c["title"] for c in found.get("cases", [])}
+        for case in build_expert_cases(kb):
+            if case["title"] in existing:
+                print("already exists, skipped:", case["title"])
+                continue
+            r = requests.post(f"{kb}/api/cases", headers=KH, json={
+                "title": case["title"], "description": case["description"], "tags": [TAG] + case.get("tags", []),
+                "owner": a.owner, "severity": "low", "assignees": [],
+                "settings": {"syncAlerts": False},
+                "connector": {"id": "none", "name": "none", "type": ".none", "fields": None}})
+            r.raise_for_status()
+            print("case", case["title"])
+
     if run("cases"):
         sys.path.insert(0, HERE)
         from cases_content import build_cases
+        from expert_cases import build_expert_cases
         found = requests.get(f"{kb}/api/cases/_find", headers=KH,
                              params={"tags": TAG, "perPage": 100, "owner": a.owner}).json()
         old = [c["id"] for c in found.get("cases", [])]
@@ -183,9 +225,9 @@ def main():
             sys.exit(f"{len(old)} game cases already exist. Use --recreate-cases to replace them.")
         if old:
             requests.delete(f"{kb}/api/cases", headers=KH, params={"ids": json.dumps(old)}).raise_for_status()
-        for case in build_cases(kb):
+        for case in build_cases(kb) + build_expert_cases(kb):
             r = requests.post(f"{kb}/api/cases", headers=KH, json={
-                "title": case["title"], "description": case["description"], "tags": [TAG],
+                "title": case["title"], "description": case["description"], "tags": [TAG] + case.get("tags", []),
                 "owner": a.owner, "severity": "low", "assignees": [],
                 "settings": {"syncAlerts": False},
                 "connector": {"id": "none", "name": "none", "type": ".none", "fields": None}})

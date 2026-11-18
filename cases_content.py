@@ -65,7 +65,7 @@ def build_cases(kb):
             "## Whitehall's Biscuit Barrel\n\nA whistleblower claims one biscuit is eaten far more than any other "
             "in government meetings. Time to find out which.\n\n"
             f"**Go to:** [Discover with ES|QL (query pre-loaded)]({esql(kb, q3)})\n\n"
-            "The query is already filled in. Press **Run** (or Ctrl+Enter) if it hasn't run. It adds up packets "
+            "The query is already filled in. Press **Search** (or Ctrl+Enter) if it hasn't run. It adds up packets "
             "per biscuit and sorts the biggest first.\n\n"
             f"```\n{q3}\n```\n\n"
             "**Answer format:** the name of the biscuit in first place." + FOOT),
@@ -90,7 +90,7 @@ def build_cases(kb):
             f"**Go to:** [Lens (new visualisation)]({kb}/app/lens#/)\n\n"
             "1. Make sure the data view (top left) is **pubsec-gritters**.\n"
             "2. Drag the field **gritter** from the left sidebar onto the middle of the canvas.\n"
-            "3. You get a bar chart: the tallest bar is the winner. If names are cut off, hover the bar.\n"
+            "3. You get a bar chart: the tallest bar, that is not **Other**, is the winner. If names are cut off, hover the bar.\n"
             "4. Don't save. Just read.\n\n"
             "**Answer format:** the gritter's name, exactly as shown." + FOOT),
         comments=[]))
@@ -130,7 +130,7 @@ def build_cases(kb):
             "page to load. How long, in milliseconds, was the slowest response?\n\n"
             f"**Go to:** [Discover with ES|QL (query pre-loaded)]({esql(kb, q8)})\n\n"
             f"```\n{q8}\n```\n\n"
-            "Press **Run** if needed and read the single number in the result.\n\n"
+            "Press **Search** if needed and read the single number in the result.\n\n"
             "**Answer format:** a number (no commas)." + FOOT),
         comments=[]))
 
@@ -150,8 +150,8 @@ def build_cases(kb):
         title="Q10 | The Castle Conspiracy",
         description=(
             "## Final Case: Ask the Robot\n\nSomeone has applied to build a **moat** around a semi-detached "
-            "house. Don't search for it yourself. Make the **AI Assistant** do the work.\n\n"
-            "1. Open the AI Assistant (the sparkle / assistant button at the top right of Kibana).\n"
+            "house. Don't search for it yourself. Make the **Elastic AI Agent** do the work.\n\n"
+            "1. Open the Elastic AI Agent (the sparkle button at the top right of Kibana).\n"
             "2. Paste this in and send it:\n\n"
             "```\nSearch the pubsec-planning index for any planning application that mentions a moat. "
             "What is the applicant_name?\n```\n\n"
@@ -159,6 +159,8 @@ def build_cases(kb):
             "4. *Backup plan:* [Discover]("
             f"{discover(kb, 'pubsec-planning')}) and search `moat`.\n\n"
             "**Answer format:** the applicant's **surname**.\n\n"
-            "Then take your ten answers back to the Elastic team on the swag table. Well done, Agent!" + FOOT),
+            "Then take your ten answers back to the Elastic team on the swag table. Well done, Agent!\n\n"
+            "*Fancy a harder challenge? Ask the team about the **Expert Round**: six extra questions, in the cases "
+            "whose names start with `EXPERT`.*" + FOOT),
         comments=[]))
     return c
